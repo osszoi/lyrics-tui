@@ -1,0 +1,5 @@
+*.sh
+lyrics-tui
+songs/
+
+.env
