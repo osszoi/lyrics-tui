@@ -22,28 +22,36 @@ Lyrics TUI displays song lyrics in your terminal with the following features:
 
 ## Installation
 
-1. Clone the repository:
+### Install via Go (recommended)
+
+```bash
+go install github.com/osszoi/lyrics-tui@latest
+```
+
+Make sure `$HOME/go/bin` is in your PATH.
+
+### Download binary
+
+Download the latest release from the [releases page](https://github.com/osszoi/lyrics-tui/releases) and extract it.
+
+### Build from source
+
 ```bash
 git clone <repository-url>
 cd lyrics-tui
+go build
 ```
 
-2. Create a `.env` file in the project root:
+## Configuration
+
+The application works without configuration, but you can optionally set up a Genius API token for fallback lyrics when synced lyrics are unavailable.
+
+Create a `.env` file:
 ```bash
 GENIUS_ACCESS_TOKEN=your_genius_api_token_here
 ```
 
-To get a Genius API token, visit https://genius.com/api-clients and create a new API client.
-
-3. Build the application:
-```bash
-go build
-```
-
-4. Run:
-```bash
-./lyrics-tui
-```
+Get a token at https://genius.com/api-clients
 
 ## Usage
 
