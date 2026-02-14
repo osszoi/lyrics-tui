@@ -16,13 +16,14 @@ import (
 func main() {
 	if err := godotenv.Load(); err != nil {
 		fmt.Println("Error loading .env file")
-		os.Exit(1)
+		//os.Exit(1)
 	}
 
 	geniusToken := os.Getenv("GENIUS_ACCESS_TOKEN")
 	if geniusToken == "" {
 		fmt.Println("GENIUS_ACCESS_TOKEN not set in .env file")
-		os.Exit(1)
+		//os.Exit(1)
+		geniusToken = ""
 	}
 
 	lrclibProvider := lyrics.NewLRCLIBProvider()
