@@ -274,6 +274,16 @@ func (m Model) renderSettingsModal() string {
 		parts = append(parts, "")
 	}
 
+	clearCacheField := m.settingsClearCacheField()
+	count := m.lyricsService.CachedSongCount()
+	clearLabel := fmt.Sprintf("Clear Cache (%d songs)", count)
+	if m.settingsCursor == clearCacheField {
+		parts = append(parts, errorStyle.Render("> "+clearLabel))
+	} else {
+		parts = append(parts, helpStyle.Render("  "+clearLabel))
+	}
+	parts = append(parts, "")
+
 	parts = append(parts, helpStyle.Render("  Enter: save · Esc: cancel"))
 	parts = append(parts, helpStyle.Render("  ◂/▸: change provider · Tab: next field"))
 

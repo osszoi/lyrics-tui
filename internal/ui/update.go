@@ -260,12 +260,20 @@ func (m Model) openSettings() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) settingsMaxField() int {
 	providerID := parse.AllProviders[m.settingsProviderIdx]
-	maxField := 1
 	if providerID != parse.ProviderOllama {
-		maxField = 2
+		return 3
 	}
+	return 2
+}
+
+func (m Model) settingsClearCacheField() int {
+	return m.settingsMaxField()
+}
+
+func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	maxField := m.settingsMaxField()
 
 	switch msg.String() {
 	case "ctrl+c":
@@ -276,6 +284,11 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
+		if m.settingsCursor == m.settingsClearCacheField() {
+			m.lyricsService.ClearCache()
+			return m, nil
+		}
+
 		m.config.Provider = string(parse.AllProviders[m.settingsProviderIdx])
 		m.config.Model = m.settingsModel.Value()
 		m.config.APIKey = m.settingsAPIKey.Value()
@@ -314,10 +327,7 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			newID := parse.AllProviders[m.settingsProviderIdx]
 			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
 			m.settingsAPIKey.SetValue("")
-			newMax := 1
-			if newID != parse.ProviderOllama {
-				newMax = 2
-			}
+			newMax := m.settingsMaxField()
 			if m.settingsCursor > newMax {
 				m.settingsCursor = newMax
 			}
@@ -333,10 +343,7 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			newID := parse.AllProviders[m.settingsProviderIdx]
 			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
 			m.settingsAPIKey.SetValue("")
-			newMax := 1
-			if newID != parse.ProviderOllama {
-				newMax = 2
-			}
+			newMax := m.settingsMaxField()
 			if m.settingsCursor > newMax {
 				m.settingsCursor = newMax
 			}

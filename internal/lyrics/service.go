@@ -80,6 +80,14 @@ func (s *Service) ListAllCached() []CachedSongEntry {
 	return s.cache.ListAll()
 }
 
+func (s *Service) ClearCache() error {
+	return s.cache.ClearAll()
+}
+
+func (s *Service) CachedSongCount() int {
+	return s.cache.Count()
+}
+
 func (s *Service) saveToCache(artist, title string, song *Song, offset float64) error {
 	cached := &CachedSong{
 		Artist:          artist,

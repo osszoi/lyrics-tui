@@ -72,6 +72,33 @@ func (c *Cache) cachePath(artist, title string) string {
 	return fmt.Sprintf("%s/%s_%s.json", c.dir, safeArtist, safeTitle)
 }
 
+func (c *Cache) ClearAll() error {
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			os.Remove(filepath.Join(c.dir, entry.Name()))
+		}
+	}
+	return nil
+}
+
+func (c *Cache) Count() int {
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	return count
+}
+
 func (c *Cache) ListAll() []CachedSongEntry {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
