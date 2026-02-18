@@ -25,6 +25,11 @@ type Provider interface {
 	FetchSynced(artist, title string) ([]Line, error)
 }
 
+type CachedSongEntry struct {
+	Artist string
+	Title  string
+}
+
 // CachedSong represents a song stored in cache with offset information.
 type CachedSong struct {
 	Artist          string  `json:"artist"`

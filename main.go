@@ -14,6 +14,8 @@ import (
 	"lyrics-tui/internal/ui"
 )
 
+var Version = "dev"
+
 func main() {
 	godotenv.Load()
 
@@ -34,7 +36,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	model := ui.NewModel(lyricsService, mprisPlayer, parser, cfg)
+	model := ui.NewModel(lyricsService, mprisPlayer, parser, cfg, Version)
 
 	p := tea.NewProgram(
 		model,

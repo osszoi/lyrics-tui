@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -69,6 +70,29 @@ func (c *Cache) cachePath(artist, title string) string {
 	safeArtist := sanitizeFilename(artist)
 	safeTitle := sanitizeFilename(title)
 	return fmt.Sprintf("%s/%s_%s.json", c.dir, safeArtist, safeTitle)
+}
+
+func (c *Cache) ListAll() []CachedSongEntry {
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return nil
+	}
+	var songs []CachedSongEntry
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(c.dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var cached CachedSong
+		if err := json.Unmarshal(data, &cached); err != nil {
+			continue
+		}
+		songs = append(songs, CachedSongEntry{Artist: cached.Artist, Title: cached.Title})
+	}
+	return songs
 }
 
 func sanitizeFilename(s string) string {

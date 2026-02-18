@@ -15,8 +15,13 @@ func (m Model) View() string {
 	}
 
 	if m.settingsOpen {
-		modal := m.renderSettingsModal()
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSettingsModal())
+	}
+	if m.searchModalOpen {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSearchModal())
+	}
+	if m.cachedSongsModalOpen {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderCachedSongsModal())
 	}
 
 	leftWidth := m.width / 4
@@ -27,9 +32,202 @@ func (m Model) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, lyricsBox)
 
-	help := helpStyle.Render("\nTab: auto-detect • Enter: search • +/-: timing • /: follow • Ctrl+O: settings • Esc: quit")
+	help := helpStyle.Render("\n/: search • Ctrl+/: cached • Tab: auto-detect • f: follow • +/-: timing • Ctrl+O: settings • Esc: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
+}
+
+// --- left panel: 3 bordered boxes ---
+
+func (m Model) renderLeftColumn(width int) string {
+	totalHeight := m.height - 2
+	innerWidth := width - 2
+
+	box1Height := 2
+	remaining := totalHeight - (box1Height + 2)
+	box2Height := remaining / 2
+	box3Height := remaining - box2Height
+
+	box1 := m.renderHeaderBox(innerWidth, box1Height)
+	box2 := m.renderLoadedSongBox(innerWidth, box2Height-2)
+	box3 := m.renderNowPlayingBox(innerWidth, box3Height-2)
+
+	return lipgloss.JoinVertical(lipgloss.Left, box1, box2, box3)
+}
+
+func (m Model) renderHeaderBox(width, height int) string {
+	versionStr := m.version
+	if versionStr == "dev" {
+		versionStr = "(dev)"
+	}
+
+	line1 := titleStyle.Render(fmt.Sprintf("♪ Lyrics TUI %s", versionStr))
+	line2 := helpStyle.Render(fmt.Sprintf("  %s (%s)", m.parser.Name(), m.config.Model))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, line1, line2)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lavender).
+		Width(width).
+		Height(height).
+		Render(content)
+}
+
+func (m Model) renderLoadedSongBox(width, height int) string {
+	var parts []string
+
+	parts = append(parts, helpStyle.Render("Loaded Song"))
+	parts = append(parts, "")
+
+	if m.artist != "" && m.title != "" {
+		parts = append(parts, infoStyle.Render("♪ "+m.artist))
+		parts = append(parts, infoStyle.Render("  "+m.title))
+
+		if m.searching {
+			parts = append(parts, "")
+			parts = append(parts, activeStyle.Render("Searching..."))
+		}
+
+		if !m.hasSyncedLyrics && m.lyrics != "" {
+			parts = append(parts, "")
+			parts = append(parts, warningStyle.Render("No synced lyrics"))
+		}
+
+		if m.hasSyncedLyrics && m.offset != 0 {
+			parts = append(parts, "")
+			parts = append(parts, helpStyle.Render(fmt.Sprintf("Offset: %+.1fs", m.offset)))
+		}
+
+		if m.hasSyncedLyrics {
+			followStr := "ON"
+			followColor := activeStyle
+			if !m.followMode {
+				followStr = "OFF"
+				followColor = warningStyle
+			}
+			parts = append(parts, followColor.Render("Follow: "+followStr))
+		}
+	} else {
+		parts = append(parts, helpStyle.Render("No song loaded"))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lavender).
+		Width(width).
+		Height(height).
+		Render(content)
+}
+
+func (m Model) renderNowPlayingBox(width, height int) string {
+	var parts []string
+
+	parts = append(parts, helpStyle.Render("Now Playing"))
+
+	if m.autoDetectMode {
+		parts = append(parts, activeStyle.Render("Auto-detect: ON"))
+	} else {
+		parts = append(parts, helpStyle.Render("Auto-detect: OFF"))
+	}
+
+	parts = append(parts, "")
+
+	if m.mprisArtist != "" && m.mprisTitle != "" {
+		parts = append(parts, infoStyle.Render("♪ "+m.mprisArtist))
+		parts = append(parts, infoStyle.Render("  "+m.mprisTitle))
+		parts = append(parts, "")
+		parts = append(parts, m.renderProgressBar(width-2))
+	} else {
+		parts = append(parts, helpStyle.Render("Nothing detected"))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lavender).
+		Width(width).
+		Height(height).
+		Render(content)
+}
+
+// --- modals ---
+
+func (m Model) renderSearchModal() string {
+	var parts []string
+
+	parts = append(parts, titleStyle.Render("Search"))
+	parts = append(parts, "")
+	parts = append(parts, m.input.View())
+	parts = append(parts, "")
+	parts = append(parts, helpStyle.Render("Enter: search · Esc: cancel"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Padding(1, 2).
+		Width(50).
+		Render(content)
+}
+
+func (m Model) renderCachedSongsModal() string {
+	var parts []string
+
+	parts = append(parts, titleStyle.Render("Cached Songs"))
+	parts = append(parts, "")
+	parts = append(parts, m.cachedSongsFilter.View())
+	parts = append(parts, "")
+
+	filtered := m.cachedSongsFiltered
+	if len(filtered) == 0 {
+		if m.cachedSongsFilter.Value() != "" {
+			parts = append(parts, helpStyle.Render("No matches"))
+		} else {
+			parts = append(parts, helpStyle.Render("No cached songs found"))
+		}
+	} else {
+		maxVisible := 15
+		start := 0
+		if m.cachedSongsCursor >= maxVisible {
+			start = m.cachedSongsCursor - maxVisible + 1
+		}
+		end := start + maxVisible
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+
+		for i := start; i < end; i++ {
+			entry := filtered[i]
+			line := fmt.Sprintf("%s - %s", entry.Title, entry.Artist)
+			if i == m.cachedSongsCursor {
+				parts = append(parts, activeStyle.Render("> "+line))
+			} else {
+				parts = append(parts, helpStyle.Render("  "+line))
+			}
+		}
+
+		if len(filtered) > maxVisible {
+			parts = append(parts, "")
+			parts = append(parts, helpStyle.Render(fmt.Sprintf("  %d/%d", m.cachedSongsCursor+1, len(filtered))))
+		}
+	}
+
+	parts = append(parts, "")
+	parts = append(parts, helpStyle.Render("Enter: load · Esc: cancel · ↑/↓: navigate"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Padding(1, 2).
+		Width(60).
+		Render(content)
 }
 
 func (m Model) renderSettingsModal() string {
@@ -81,104 +279,15 @@ func (m Model) renderSettingsModal() string {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	modalStyle := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(mauve).
 		Padding(1, 2).
-		Width(width)
-
-	return modalStyle.Render(content)
-}
-
-func (m Model) renderLeftColumn(width int) string {
-	var parts []string
-
-	parts = append(parts, titleStyle.Render("♪ Lyrics TUI"))
-	parts = append(parts, helpStyle.Render("  "+m.parser.Name()+" ("+m.config.Model+")"))
-	parts = append(parts, "")
-
-	var inputContent string
-	var inputBorderColor lipgloss.Color
-	if m.autoDetectMode {
-		inputContent = warningStyle.Render("Auto-detecting...")
-		inputBorderColor = yellow
-	} else {
-		inputContent = m.input.View()
-		inputBorderColor = lavender
-	}
-
-	inputBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(inputBorderColor).
-		Width(width - 4).
-		Padding(0, 1).
-		Render(inputContent)
-	parts = append(parts, inputBox)
-	parts = append(parts, "")
-
-	if m.artist != "" && m.title != "" {
-		parts = append(parts, infoStyle.Render(fmt.Sprintf("  %s", m.artist)))
-		parts = append(parts, infoStyle.Render(fmt.Sprintf("  %s", m.title)))
-		parts = append(parts, "")
-
-		if m.duration > 0 {
-			parts = append(parts, m.renderProgressBar())
-			parts = append(parts, "")
-		}
-
-		if m.hasSyncedLyrics && m.offset != 0 {
-			offsetStr := fmt.Sprintf("%+.1fs", m.offset)
-			parts = append(parts, helpStyle.Render(fmt.Sprintf("Offset: %s", offsetStr)))
-		}
-
-		if m.hasSyncedLyrics && !m.followMode {
-			parts = append(parts, warningStyle.Render("Follow: OFF"))
-		}
-
-		if m.hasSyncedLyrics && (m.offset != 0 || !m.followMode) {
-			parts = append(parts, "")
-		}
-
-		if !m.hasSyncedLyrics && m.lyrics != "" {
-			parts = append(parts, warningStyle.Render("No synced lyrics"))
-			parts = append(parts, helpStyle.Render("(using fallback)"))
-		}
-	} else {
-		parts = append(parts, helpStyle.Render("No song loaded"))
-	}
-
-	if m.searching {
-		parts = append(parts, "")
-		parts = append(parts, activeStyle.Render("Searching..."))
-	}
-
-	leftContent := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
-	var footerParts []string
-	footerParts = append(footerParts, "\n---")
-	footerParts = append(footerParts, "Currently playing:")
-	if m.debugInfo != "" {
-		footerParts = append(footerParts, m.debugInfo)
-	} else {
-		footerParts = append(footerParts, "Nothing detected")
-	}
-
-	footerParts = append(footerParts, "")
-	footerParts = append(footerParts, "Identified as:")
-	if m.parsedArtist != "" && m.parsedTitle != "" {
-		footerParts = append(footerParts, fmt.Sprintf("  %s", m.parsedArtist))
-		footerParts = append(footerParts, fmt.Sprintf("  %s", m.parsedTitle))
-	} else {
-		footerParts = append(footerParts, "Not parsed yet")
-	}
-
-	footer := helpStyle.Render(strings.Join(footerParts, "\n"))
-
-	return lipgloss.NewStyle().
 		Width(width).
-		Height(m.height - 4).
-		Render(leftContent + footer)
+		Render(content)
 }
+
+// --- lyrics rendering ---
 
 func (m Model) renderLyricsBox(width int) string {
 	return lipgloss.NewStyle().
@@ -189,12 +298,20 @@ func (m Model) renderLyricsBox(width int) string {
 		Render(m.viewport.View())
 }
 
-func (m Model) renderProgressBar() string {
+func (m Model) renderProgressBar(width int) string {
 	if m.duration == 0 {
-		return ""
+		barWidth := width - 14
+		if barWidth < 5 {
+			barWidth = 5
+		}
+		bar := strings.Repeat("░", barWidth)
+		return helpStyle.Render(fmt.Sprintf("%s 0:00 / 0:00", bar))
 	}
 
-	barWidth := 30
+	barWidth := width - 14
+	if barWidth < 5 {
+		barWidth = 5
+	}
 	progress := m.playbackPosition / m.duration
 	if progress > 1 {
 		progress = 1

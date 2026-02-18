@@ -2,19 +2,16 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"lyrics-tui/internal/lyrics"
 	"lyrics-tui/internal/parse"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var (
-		tiCmd tea.Cmd
-		vpCmd tea.Cmd
-	)
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
@@ -51,17 +48,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(smCmd, saCmd)
 	}
 
-	if !m.autoDetectMode {
+	if m.searchModalOpen {
+		var tiCmd tea.Cmd
 		m.input, tiCmd = m.input.Update(msg)
+		return m, tiCmd
 	}
-	m.viewport, vpCmd = m.viewport.Update(msg)
 
-	return m, tea.Batch(tiCmd, vpCmd)
+	if m.cachedSongsModalOpen {
+		var cfCmd tea.Cmd
+		m.cachedSongsFilter, cfCmd = m.cachedSongsFilter.Update(msg)
+		return m, cfCmd
+	}
+
+	m.viewport, _ = m.viewport.Update(msg)
+	return m, nil
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settingsOpen {
 		return m.handleSettingsKeyMsg(msg)
+	}
+	if m.searchModalOpen {
+		return m.handleSearchModalKeyMsg(msg)
+	}
+	if m.cachedSongsModalOpen {
+		return m.handleCachedSongsKeyMsg(msg)
 	}
 
 	switch msg.String() {
@@ -71,23 +82,31 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		return m.openSettings()
 
-	case "tab":
-		m.autoDetectMode = !m.autoDetectMode
-		if m.autoDetectMode {
-			m.input.Blur()
-			return m, tea.Batch(m.detectCurrentSong(), tickEverySecond())
-		}
+	case "/":
+		m.searchModalOpen = true
+		m.input.SetValue("")
 		m.input.Focus()
 		return m, nil
 
-	case "enter":
-		if !m.autoDetectMode && !m.searching && m.input.Value() != "" {
-			query := m.input.Value()
-			m.input.SetValue("")
-			m.searching = true
-			m.viewport.SetContent("Searching...")
-			return m, m.searchLyrics(query)
+	case "ctrl+_":
+		m.cachedSongs = m.lyricsService.ListAllCached()
+		m.cachedSongsFiltered = m.cachedSongs
+		m.cachedSongsCursor = 0
+		m.cachedSongsFilter.SetValue("")
+		m.cachedSongsFilter.Focus()
+		m.cachedSongsModalOpen = true
+		return m, nil
+
+	case "tab":
+		m.autoDetectMode = !m.autoDetectMode
+		if m.autoDetectMode {
+			return m, tea.Batch(m.detectCurrentSong(), tickEverySecond())
 		}
+		return m, nil
+
+	case "f":
+		m.followMode = !m.followMode
+		return m, nil
 
 	case "+", "=":
 		if m.hasSyncedLyrics {
@@ -107,24 +126,124 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "/", "?":
-		m.followMode = !m.followMode
+	case "up", "k":
+		m.viewport, _ = m.viewport.Update(msg)
+	case "down", "j":
+		m.viewport, _ = m.viewport.Update(msg)
 	}
 
-	var tiCmd tea.Cmd
-	var vpCmd tea.Cmd
-	if !m.autoDetectMode {
-		m.input, tiCmd = m.input.Update(msg)
-	}
-	m.viewport, vpCmd = m.viewport.Update(msg)
-
-	return m, tea.Batch(tiCmd, vpCmd)
+	return m, nil
 }
+
+// --- search modal ---
+
+func (m Model) handleSearchModalKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.searchModalOpen = false
+		m.input.Blur()
+		return m, nil
+	case "enter":
+		query := m.input.Value()
+		if query == "" {
+			return m, nil
+		}
+		m.searchModalOpen = false
+		m.input.Blur()
+		m.searching = true
+		m.viewport.SetContent("Searching...")
+		return m, m.searchLyrics(query)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// --- cached songs modal ---
+
+func (m Model) handleCachedSongsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.cachedSongsModalOpen = false
+		m.cachedSongsFilter.Blur()
+		return m, nil
+	case "up":
+		if m.cachedSongsCursor > 0 {
+			m.cachedSongsCursor--
+		}
+		return m, nil
+	case "down":
+		if m.cachedSongsCursor < len(m.cachedSongsFiltered)-1 {
+			m.cachedSongsCursor++
+		}
+		return m, nil
+	case "enter":
+		if len(m.cachedSongsFiltered) == 0 {
+			return m, nil
+		}
+		entry := m.cachedSongsFiltered[m.cachedSongsCursor]
+		cached, err := m.lyricsService.LoadFromCache(entry.Artist, entry.Title)
+		if err != nil {
+			m.cachedSongsModalOpen = false
+			m.cachedSongsFilter.Blur()
+			m.viewport.SetContent(fmt.Sprintf("Error loading from cache: %s", err))
+			return m, nil
+		}
+
+		m.artist = cached.Artist
+		m.title = cached.Title
+		m.lyrics = cached.Lyrics
+		m.syncedLyrics = cached.SyncedLyrics
+		m.hasSyncedLyrics = cached.HasSyncedLyrics
+		m.offset = cached.Offset
+		m.parsedArtist = cached.Artist
+		m.parsedTitle = cached.Title
+		m.playbackPosition = 0
+		m.searching = false
+
+		if m.hasSyncedLyrics {
+			m.viewport.SetContent(m.renderSyncedLyrics())
+		} else {
+			m.viewport.SetContent(cached.Lyrics)
+		}
+
+		m.cachedSongsModalOpen = false
+		m.cachedSongsFilter.Blur()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.cachedSongsFilter, cmd = m.cachedSongsFilter.Update(msg)
+	m.cachedSongsFiltered = m.filterCachedSongs()
+	m.cachedSongsCursor = 0
+	return m, cmd
+}
+
+func (m Model) filterCachedSongs() []lyrics.CachedSongEntry {
+	query := strings.ToLower(m.cachedSongsFilter.Value())
+	if query == "" {
+		return m.cachedSongs
+	}
+	var filtered []lyrics.CachedSongEntry
+	for _, entry := range m.cachedSongs {
+		haystack := strings.ToLower(entry.Artist + " " + entry.Title)
+		if strings.Contains(haystack, query) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+// --- settings modal ---
 
 func (m Model) openSettings() (tea.Model, tea.Cmd) {
 	m.settingsOpen = true
 	m.settingsCursor = 0
-	m.input.Blur()
 
 	for i, id := range parse.AllProviders {
 		if id == parse.ProviderID(m.config.Provider) {
@@ -154,9 +273,6 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc", "ctrl+o":
 		m.settingsOpen = false
-		if !m.autoDetectMode {
-			m.input.Focus()
-		}
 		return m, nil
 
 	case "enter":
@@ -171,9 +287,6 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		m.settingsOpen = false
-		if !m.autoDetectMode {
-			m.input.Focus()
-		}
 		return m, nil
 
 	case "tab", "down":
@@ -253,6 +366,8 @@ func (m Model) focusSettingsField() Model {
 	return m
 }
 
+// --- window / playback / mpris handlers ---
+
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
@@ -260,16 +375,13 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	leftWidth := m.width / 4
 	rightWidth := m.width - leftWidth - 6
 
-	m.input.Width = leftWidth - 6
-
 	if !m.ready {
-		m.viewport = m.viewport
 		m.viewport.Width = rightWidth
-		m.viewport.Height = msg.Height - 6
+		m.viewport.Height = msg.Height - 4
 		m.ready = true
 	} else {
 		m.viewport.Width = rightWidth
-		m.viewport.Height = msg.Height - 6
+		m.viewport.Height = msg.Height - 4
 	}
 
 	return m, nil
@@ -300,9 +412,7 @@ func (m Model) handlePlaybackPosition(msg playbackPosition) (tea.Model, tea.Cmd)
 		if m.followMode {
 			currentIdx := m.getCurrentLineIndex()
 			if currentIdx >= 0 {
-				targetLine := currentIdx
-				viewportHeight := m.viewport.Height
-				centerOffset := targetLine - (viewportHeight / 2)
+				centerOffset := currentIdx - (m.viewport.Height / 2)
 				if centerOffset < 0 {
 					centerOffset = 0
 				}
@@ -323,11 +433,15 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.artist == "" || msg.title == "" {
-		m.debugInfo = fmt.Sprintf("No data\nArtist: '%s'\nTitle: '%s'", msg.artist, msg.title)
+		m.debugInfo = ""
+		m.mprisArtist = ""
+		m.mprisTitle = ""
 		return m, nil
 	}
 
 	m.debugInfo = fmt.Sprintf("%s\n%s", msg.artist, msg.title)
+	m.mprisArtist = msg.artist
+	m.mprisTitle = msg.title
 
 	if !m.autoDetectMode {
 		return m, nil
@@ -339,8 +453,6 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 	}
 
 	m.lastDetectedSong = songKey
-	m.mprisArtist = msg.artist
-	m.mprisTitle = msg.title
 	m.searching = true
 
 	m.artist = ""
@@ -373,7 +485,6 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.SetContent(cached.Lyrics)
 		}
-		m.debugInfo = m.debugInfo + "\n\nLoaded from cache (skipped LLM)!"
 		return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 			return m.getPlaybackPosition()()
 		})
@@ -381,7 +492,6 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 
 	query := msg.artist + " " + msg.title
 	m.viewport.SetContent(fmt.Sprintf("New song detected!\n\n%s\n\nFetching lyrics...", query))
-	m.debugInfo = m.debugInfo + fmt.Sprintf("\n\nSearching: %s", query)
 	return m, m.searchLyricsWithMpris(query, msg.artist, msg.title)
 }
 
@@ -390,7 +500,6 @@ func (m Model) handleParsedResult(msg parsedResult) (tea.Model, tea.Cmd) {
 		m.searching = false
 		m.err = msg.err
 		m.viewport.SetContent(fmt.Sprintf("Parse error: %s", msg.err))
-		m.debugInfo = m.debugInfo + "\n\nParse error"
 		return m, nil
 	}
 
@@ -406,7 +515,6 @@ func (m Model) handleSearchResult(msg searchResult) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.err = msg.err
 		m.viewport.SetContent(fmt.Sprintf("Error: %s", msg.err))
-		m.debugInfo = m.debugInfo + "\n\nError: " + msg.err.Error()
 		return m, nil
 	}
 
@@ -428,7 +536,6 @@ func (m Model) handleSearchResult(msg searchResult) (tea.Model, tea.Cmd) {
 	} else {
 		m.viewport.SetContent(msg.song.Lyrics)
 	}
-	m.debugInfo = m.debugInfo + "\n\nLyrics loaded!"
 
 	return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return m.getPlaybackPosition()()

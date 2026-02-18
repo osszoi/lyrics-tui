@@ -76,6 +76,10 @@ func (s *Service) UpdateOffset(artist, title string, offset float64) error {
 	return s.cache.UpdateOffset(artist, title, offset)
 }
 
+func (s *Service) ListAllCached() []CachedSongEntry {
+	return s.cache.ListAll()
+}
+
 func (s *Service) saveToCache(artist, title string, song *Song, offset float64) error {
 	cached := &CachedSong{
 		Artist:          artist,

@@ -18,6 +18,7 @@ type Model struct {
 	player        player.Player
 	parser        parse.Provider
 	config        *config.Config
+	version       string
 
 	input    textinput.Model
 	viewport viewport.Model
@@ -50,19 +51,29 @@ type Model struct {
 	debugInfo string
 	err       error
 
+	// settings modal
 	settingsOpen        bool
 	settingsCursor      int
 	settingsProviderIdx int
 	settingsModel       textinput.Model
 	settingsAPIKey      textinput.Model
+
+	// search modal
+	searchModalOpen bool
+
+	// cached songs modal
+	cachedSongsModalOpen bool
+	cachedSongs          []lyrics.CachedSongEntry
+	cachedSongsFiltered  []lyrics.CachedSongEntry
+	cachedSongsCursor    int
+	cachedSongsFilter    textinput.Model
 }
 
-func NewModel(lyricsService *lyrics.Service, player player.Player, parser parse.Provider, cfg *config.Config) Model {
+func NewModel(lyricsService *lyrics.Service, player player.Player, parser parse.Provider, cfg *config.Config, version string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Type song name..."
-	ti.Focus()
 	ti.CharLimit = 200
-	ti.Width = 80
+	ti.Width = 40
 
 	vp := viewport.New(80, 20)
 	vp.SetContent("Waiting for you to drop some song names...\n\n" +
@@ -79,16 +90,23 @@ func NewModel(lyricsService *lyrics.Service, player player.Player, parser parse.
 	sa.CharLimit = 200
 	sa.Width = 30
 
+	cf := textinput.New()
+	cf.Placeholder = "filter..."
+	cf.CharLimit = 100
+	cf.Width = 40
+
 	return Model{
-		lyricsService:  lyricsService,
-		player:         player,
-		parser:         parser,
-		config:         cfg,
-		input:          ti,
-		viewport:       vp,
-		followMode:     true,
-		settingsModel:  sm,
-		settingsAPIKey: sa,
+		lyricsService:     lyricsService,
+		player:            player,
+		parser:            parser,
+		config:            cfg,
+		version:           version,
+		input:             ti,
+		viewport:          vp,
+		followMode:        true,
+		settingsModel:     sm,
+		settingsAPIKey:    sa,
+		cachedSongsFilter: cf,
 	}
 }
 
