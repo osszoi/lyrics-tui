@@ -1,0 +1,4 @@
+- [ ] Improve cache system. Maybe we can store the auto identified lyrics in each cached song so that we don't have to re-identify them. Only when auto identify is enabled because I can also have a different song playing while I only want to search for a unrelated lyric.
+- [ ] Group/sort cached songs by artist/alphabetically
+- [ ] Add a new panel on the right that shows other songs from same artist
+- [ ] Fix responsiveness (if needed, I think it's needed)
