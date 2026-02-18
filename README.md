@@ -1,10 +1,10 @@
-<p align="center">
-  <img src="images/v1.2.0/auto-detect-on--follow-on.jpeg" width="450" />
-</p>
-
 # Lyrics TUI
 
 [![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/osszoi/lyrics-tui/releases/latest)
+
+<p align="center">
+  <img src="images/v1.2.0/auto-detect-on--follow-on.jpeg" width="300" />
+</p>
 
 A terminal-based lyrics viewer with automatic song detection and synchronized lyric highlighting.
 
