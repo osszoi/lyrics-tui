@@ -13,5 +13,4 @@ endif
 	make build
 	chmod +x $(BIN)
 	gh release create v$(v) $(BIN) --generate-notes --target master
-	rm $(BIN)
 
