@@ -5,12 +5,18 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"lyrics-tui/internal/parse"
 )
 
-// View renders the TUI.
 func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
+	}
+
+	if m.settingsOpen {
+		modal := m.renderSettingsModal()
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 	}
 
 	leftWidth := m.width / 4
@@ -21,21 +27,80 @@ func (m Model) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, lyricsBox)
 
-	help := helpStyle.Render("\nTab: auto-detect • Enter: search • +/-: adjust timing • /: follow mode • ↑/↓ or j/k: scroll • Esc: quit")
+	help := helpStyle.Render("\nTab: auto-detect • Enter: search • +/-: timing • /: follow • Ctrl+O: settings • Esc: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
+}
+
+func (m Model) renderSettingsModal() string {
+	width := 50
+	var parts []string
+
+	parts = append(parts, titleStyle.Render("Settings"))
+	parts = append(parts, "")
+
+	providerID := parse.AllProviders[m.settingsProviderIdx]
+	providerName := parse.ProviderName(providerID)
+
+	if m.settingsCursor == 0 {
+		parts = append(parts, activeStyle.Render("> ")+"Provider    "+infoStyle.Render("◂ "+providerName+" ▸"))
+	} else {
+		parts = append(parts, "  Provider    "+infoStyle.Render("  "+providerName))
+	}
+	parts = append(parts, "")
+
+	if m.settingsCursor == 1 {
+		parts = append(parts, activeStyle.Render("> ")+"Model       "+m.settingsModel.View())
+	} else {
+		parts = append(parts, "  Model       "+m.settingsModel.View())
+	}
+	parts = append(parts, "")
+
+	if providerID != parse.ProviderOllama {
+		if m.settingsCursor == 2 {
+			parts = append(parts, activeStyle.Render("> ")+"API Key     "+m.settingsAPIKey.View())
+		} else {
+			parts = append(parts, "  API Key     "+m.settingsAPIKey.View())
+		}
+
+		envVar := ""
+		switch providerID {
+		case parse.ProviderOpenAI:
+			envVar = "OPENAI_API_KEY"
+		case parse.ProviderGemini:
+			envVar = "GEMINI_API_KEY"
+		}
+		if envVar != "" {
+			parts = append(parts, helpStyle.Render("                default: "+envVar))
+		}
+		parts = append(parts, "")
+	}
+
+	parts = append(parts, helpStyle.Render("  Enter: save · Esc: cancel"))
+	parts = append(parts, helpStyle.Render("  ◂/▸: change provider · Tab: next field"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Padding(1, 2).
+		Width(width)
+
+	return modalStyle.Render(content)
 }
 
 func (m Model) renderLeftColumn(width int) string {
 	var parts []string
 
 	parts = append(parts, titleStyle.Render("♪ Lyrics TUI"))
+	parts = append(parts, helpStyle.Render("  "+m.parser.Name()+" ("+m.config.Model+")"))
 	parts = append(parts, "")
 
 	var inputContent string
 	var inputBorderColor lipgloss.Color
 	if m.autoDetectMode {
-		inputContent = warningStyle.Render("🔍 Auto-detecting...")
+		inputContent = warningStyle.Render("Auto-detecting...")
 		inputBorderColor = yellow
 	} else {
 		inputContent = m.input.View()
@@ -52,8 +117,8 @@ func (m Model) renderLeftColumn(width int) string {
 	parts = append(parts, "")
 
 	if m.artist != "" && m.title != "" {
-		parts = append(parts, infoStyle.Render(fmt.Sprintf("🎵 %s", m.artist)))
-		parts = append(parts, infoStyle.Render(fmt.Sprintf("   %s", m.title)))
+		parts = append(parts, infoStyle.Render(fmt.Sprintf("  %s", m.artist)))
+		parts = append(parts, infoStyle.Render(fmt.Sprintf("  %s", m.title)))
 		parts = append(parts, "")
 
 		if m.duration > 0 {
@@ -67,7 +132,7 @@ func (m Model) renderLeftColumn(width int) string {
 		}
 
 		if m.hasSyncedLyrics && !m.followMode {
-			parts = append(parts, warningStyle.Render("⏸ Follow: OFF"))
+			parts = append(parts, warningStyle.Render("Follow: OFF"))
 		}
 
 		if m.hasSyncedLyrics && (m.offset != 0 || !m.followMode) {
@@ -75,7 +140,7 @@ func (m Model) renderLeftColumn(width int) string {
 		}
 
 		if !m.hasSyncedLyrics && m.lyrics != "" {
-			parts = append(parts, warningStyle.Render("⚠️ No synced lyrics"))
+			parts = append(parts, warningStyle.Render("No synced lyrics"))
 			parts = append(parts, helpStyle.Render("(using fallback)"))
 		}
 	} else {
@@ -84,7 +149,7 @@ func (m Model) renderLeftColumn(width int) string {
 
 	if m.searching {
 		parts = append(parts, "")
-		parts = append(parts, activeStyle.Render("⏳ Searching..."))
+		parts = append(parts, activeStyle.Render("Searching..."))
 	}
 
 	leftContent := lipgloss.JoinVertical(lipgloss.Left, parts...)
@@ -101,8 +166,8 @@ func (m Model) renderLeftColumn(width int) string {
 	footerParts = append(footerParts, "")
 	footerParts = append(footerParts, "Identified as:")
 	if m.parsedArtist != "" && m.parsedTitle != "" {
-		footerParts = append(footerParts, fmt.Sprintf("🎵 %s", m.parsedArtist))
-		footerParts = append(footerParts, fmt.Sprintf("   %s", m.parsedTitle))
+		footerParts = append(footerParts, fmt.Sprintf("  %s", m.parsedArtist))
+		footerParts = append(footerParts, fmt.Sprintf("  %s", m.parsedTitle))
 	} else {
 		footerParts = append(footerParts, "Not parsed yet")
 	}

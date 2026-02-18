@@ -5,9 +5,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"lyrics-tui/internal/parse"
 )
 
-// Update handles all messages and updates the model state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
@@ -43,6 +44,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSearchResult(msg)
 	}
 
+	if m.settingsOpen {
+		var smCmd, saCmd tea.Cmd
+		m.settingsModel, smCmd = m.settingsModel.Update(msg)
+		m.settingsAPIKey, saCmd = m.settingsAPIKey.Update(msg)
+		return m, tea.Batch(smCmd, saCmd)
+	}
+
 	if !m.autoDetectMode {
 		m.input, tiCmd = m.input.Update(msg)
 	}
@@ -52,9 +60,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsOpen {
+		return m.handleSettingsKeyMsg(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
+
+	case "ctrl+o":
+		return m.openSettings()
 
 	case "tab":
 		m.autoDetectMode = !m.autoDetectMode
@@ -104,6 +119,138 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	return m, tea.Batch(tiCmd, vpCmd)
+}
+
+func (m Model) openSettings() (tea.Model, tea.Cmd) {
+	m.settingsOpen = true
+	m.settingsCursor = 0
+	m.input.Blur()
+
+	for i, id := range parse.AllProviders {
+		if id == parse.ProviderID(m.config.Provider) {
+			m.settingsProviderIdx = i
+			break
+		}
+	}
+
+	m.settingsModel.SetValue(m.config.Model)
+	m.settingsAPIKey.SetValue(m.config.APIKey)
+	m.settingsModel.Blur()
+	m.settingsAPIKey.Blur()
+
+	return m, nil
+}
+
+func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	providerID := parse.AllProviders[m.settingsProviderIdx]
+	maxField := 1
+	if providerID != parse.ProviderOllama {
+		maxField = 2
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+
+	case "esc", "ctrl+o":
+		m.settingsOpen = false
+		if !m.autoDetectMode {
+			m.input.Focus()
+		}
+		return m, nil
+
+	case "enter":
+		m.config.Provider = string(parse.AllProviders[m.settingsProviderIdx])
+		m.config.Model = m.settingsModel.Value()
+		m.config.APIKey = m.settingsAPIKey.Value()
+		m.config.Save()
+
+		newParser, err := parse.NewProviderFromConfig(m.config)
+		if err == nil {
+			m.parser = newParser
+		}
+
+		m.settingsOpen = false
+		if !m.autoDetectMode {
+			m.input.Focus()
+		}
+		return m, nil
+
+	case "tab", "down":
+		m.settingsCursor++
+		if m.settingsCursor > maxField {
+			m.settingsCursor = 0
+		}
+		m = m.focusSettingsField()
+		return m, nil
+
+	case "shift+tab", "up":
+		m.settingsCursor--
+		if m.settingsCursor < 0 {
+			m.settingsCursor = maxField
+		}
+		m = m.focusSettingsField()
+		return m, nil
+
+	case "left":
+		if m.settingsCursor == 0 {
+			m.settingsProviderIdx--
+			if m.settingsProviderIdx < 0 {
+				m.settingsProviderIdx = len(parse.AllProviders) - 1
+			}
+			newID := parse.AllProviders[m.settingsProviderIdx]
+			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
+			m.settingsAPIKey.SetValue("")
+			newMax := 1
+			if newID != parse.ProviderOllama {
+				newMax = 2
+			}
+			if m.settingsCursor > newMax {
+				m.settingsCursor = newMax
+			}
+			return m, nil
+		}
+
+	case "right":
+		if m.settingsCursor == 0 {
+			m.settingsProviderIdx++
+			if m.settingsProviderIdx >= len(parse.AllProviders) {
+				m.settingsProviderIdx = 0
+			}
+			newID := parse.AllProviders[m.settingsProviderIdx]
+			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
+			m.settingsAPIKey.SetValue("")
+			newMax := 1
+			if newID != parse.ProviderOllama {
+				newMax = 2
+			}
+			if m.settingsCursor > newMax {
+				m.settingsCursor = newMax
+			}
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	switch m.settingsCursor {
+	case 1:
+		m.settingsModel, cmd = m.settingsModel.Update(msg)
+	case 2:
+		m.settingsAPIKey, cmd = m.settingsAPIKey.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m Model) focusSettingsField() Model {
+	m.settingsModel.Blur()
+	m.settingsAPIKey.Blur()
+	switch m.settingsCursor {
+	case 1:
+		m.settingsModel.Focus()
+	case 2:
+		m.settingsAPIKey.Focus()
+	}
+	return m
 }
 
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
@@ -226,14 +373,14 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.SetContent(cached.Lyrics)
 		}
-		m.debugInfo = m.debugInfo + "\n\n✓ Loaded from cache (skipped LLM)!"
+		m.debugInfo = m.debugInfo + "\n\nLoaded from cache (skipped LLM)!"
 		return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 			return m.getPlaybackPosition()()
 		})
 	}
 
 	query := msg.artist + " " + msg.title
-	m.viewport.SetContent(fmt.Sprintf("🔄 New song detected!\n\n%s\n\nFetching lyrics...", query))
+	m.viewport.SetContent(fmt.Sprintf("New song detected!\n\n%s\n\nFetching lyrics...", query))
 	m.debugInfo = m.debugInfo + fmt.Sprintf("\n\nSearching: %s", query)
 	return m, m.searchLyricsWithMpris(query, msg.artist, msg.title)
 }
@@ -242,14 +389,14 @@ func (m Model) handleParsedResult(msg parsedResult) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.searching = false
 		m.err = msg.err
-		m.viewport.SetContent(fmt.Sprintf("❌ Parse error: %s", msg.err))
-		m.debugInfo = m.debugInfo + "\n\n❌ Parse error"
+		m.viewport.SetContent(fmt.Sprintf("Parse error: %s", msg.err))
+		m.debugInfo = m.debugInfo + "\n\nParse error"
 		return m, nil
 	}
 
 	m.parsedArtist = msg.artist
 	m.parsedTitle = msg.title
-	m.viewport.SetContent(fmt.Sprintf("✓ Parsed!\nFetching lyrics for:\n%s - %s", msg.artist, msg.title))
+	m.viewport.SetContent(fmt.Sprintf("Parsed!\nFetching lyrics for:\n%s - %s", msg.artist, msg.title))
 	return m, m.fetchLyrics(msg.artist, msg.title, msg.mprisArtist, msg.mprisTitle)
 }
 
@@ -258,8 +405,8 @@ func (m Model) handleSearchResult(msg searchResult) (tea.Model, tea.Cmd) {
 
 	if msg.err != nil {
 		m.err = msg.err
-		m.viewport.SetContent(fmt.Sprintf("❌ Error: %s", msg.err))
-		m.debugInfo = m.debugInfo + "\n\n❌ Error: " + msg.err.Error()
+		m.viewport.SetContent(fmt.Sprintf("Error: %s", msg.err))
+		m.debugInfo = m.debugInfo + "\n\nError: " + msg.err.Error()
 		return m, nil
 	}
 
@@ -281,7 +428,7 @@ func (m Model) handleSearchResult(msg searchResult) (tea.Model, tea.Cmd) {
 	} else {
 		m.viewport.SetContent(msg.song.Lyrics)
 	}
-	m.debugInfo = m.debugInfo + "\n\n✓ Lyrics loaded!"
+	m.debugInfo = m.debugInfo + "\n\nLyrics loaded!"
 
 	return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return m.getPlaybackPosition()()

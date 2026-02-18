@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joho/godotenv"
 
+	"lyrics-tui/internal/config"
 	"lyrics-tui/internal/lyrics"
 	"lyrics-tui/internal/parse"
 	"lyrics-tui/internal/player"
@@ -14,17 +15,11 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("Error loading .env file")
-		//os.Exit(1)
-	}
+	godotenv.Load()
+
+	cfg := config.Load()
 
 	geniusToken := os.Getenv("GENIUS_ACCESS_TOKEN")
-	if geniusToken == "" {
-		fmt.Println("GENIUS_ACCESS_TOKEN not set in .env file")
-		//os.Exit(1)
-		geniusToken = ""
-	}
 
 	lrclibProvider := lyrics.NewLRCLIBProvider()
 	geniusProvider := lyrics.NewGeniusProvider(geniusToken)
@@ -33,9 +28,13 @@ func main() {
 
 	mprisPlayer := player.NewMPRISPlayer()
 
-	claudeParser := parse.NewClaudeParser()
+	parser, err := parse.NewProviderFromConfig(cfg)
+	if err != nil {
+		fmt.Printf("Error creating parser: %v\n", err)
+		os.Exit(1)
+	}
 
-	model := ui.NewModel(lyricsService, mprisPlayer, claudeParser)
+	model := ui.NewModel(lyricsService, mprisPlayer, parser, cfg)
 
 	p := tea.NewProgram(
 		model,
