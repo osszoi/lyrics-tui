@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"lyrics-tui/internal/lyrics"
 )
 
 func tickEverySecond() tea.Cmd {
@@ -48,6 +50,9 @@ func (m Model) getPlaybackPosition() tea.Cmd {
 }
 
 func (m Model) searchLyrics(query string) tea.Cmd {
+	if m.config.AILyrics {
+		return m.fetchAILyrics(query, "", "")
+	}
 	return m.searchLyricsWithMpris(query, "", "")
 }
 
@@ -84,6 +89,27 @@ func (m Model) fetchLyrics(artist, title, mprisArtist, mprisTitle string) tea.Cm
 
 		return searchResult{
 			song:        song,
+			mprisArtist: mprisArtist,
+			mprisTitle:  mprisTitle,
+		}
+	}
+}
+
+func (m Model) fetchAILyrics(query, mprisArtist, mprisTitle string) tea.Cmd {
+	return func() tea.Msg {
+		prompt := fmt.Sprintf(`Give me the lyrics for "%s". Surround them by <lyrics> tag and add VTT`, query)
+		response, err := m.parser.Generate(prompt)
+		if err != nil {
+			return aiLyricsResult{err: err, query: query, mprisArtist: mprisArtist, mprisTitle: mprisTitle}
+		}
+
+		extracted := lyrics.ExtractBetweenTags(response, "lyrics")
+		syncedLines := lyrics.ParseVTT(extracted)
+
+		return aiLyricsResult{
+			lyricsText:  extracted,
+			syncedLines: syncedLines,
+			query:       query,
 			mprisArtist: mprisArtist,
 			mprisTitle:  mprisTitle,
 		}

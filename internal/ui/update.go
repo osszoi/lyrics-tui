@@ -39,6 +39,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case searchResult:
 		return m.handleSearchResult(msg)
+
+	case aiLyricsResult:
+		return m.handleAILyricsResult(msg)
 	}
 
 	if m.settingsOpen {
@@ -254,6 +257,7 @@ func (m Model) openSettings() (tea.Model, tea.Cmd) {
 
 	m.settingsModel.SetValue(m.config.Model)
 	m.settingsAPIKey.SetValue(m.config.APIKey)
+	m.settingsAILyrics = m.config.AILyrics
 	m.settingsModel.Blur()
 	m.settingsAPIKey.Blur()
 
@@ -261,6 +265,14 @@ func (m Model) openSettings() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) settingsMaxField() int {
+	providerID := parse.AllProviders[m.settingsProviderIdx]
+	if providerID != parse.ProviderOllama {
+		return 4
+	}
+	return 3
+}
+
+func (m Model) settingsAILyricsField() int {
 	providerID := parse.AllProviders[m.settingsProviderIdx]
 	if providerID != parse.ProviderOllama {
 		return 3
@@ -292,6 +304,7 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.config.Provider = string(parse.AllProviders[m.settingsProviderIdx])
 		m.config.Model = m.settingsModel.Value()
 		m.config.APIKey = m.settingsAPIKey.Value()
+		m.config.AILyrics = m.settingsAILyrics
 		m.config.Save()
 
 		newParser, err := parse.NewProviderFromConfig(m.config)
@@ -318,11 +331,18 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.focusSettingsField()
 		return m, nil
 
-	case "left":
+	case "left", "right":
 		if m.settingsCursor == 0 {
-			m.settingsProviderIdx--
-			if m.settingsProviderIdx < 0 {
-				m.settingsProviderIdx = len(parse.AllProviders) - 1
+			if msg.String() == "left" {
+				m.settingsProviderIdx--
+				if m.settingsProviderIdx < 0 {
+					m.settingsProviderIdx = len(parse.AllProviders) - 1
+				}
+			} else {
+				m.settingsProviderIdx++
+				if m.settingsProviderIdx >= len(parse.AllProviders) {
+					m.settingsProviderIdx = 0
+				}
 			}
 			newID := parse.AllProviders[m.settingsProviderIdx]
 			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
@@ -333,20 +353,8 @@ func (m Model) handleSettingsKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-
-	case "right":
-		if m.settingsCursor == 0 {
-			m.settingsProviderIdx++
-			if m.settingsProviderIdx >= len(parse.AllProviders) {
-				m.settingsProviderIdx = 0
-			}
-			newID := parse.AllProviders[m.settingsProviderIdx]
-			m.settingsModel.SetValue(parse.DefaultModelForProvider(newID))
-			m.settingsAPIKey.SetValue("")
-			newMax := m.settingsMaxField()
-			if m.settingsCursor > newMax {
-				m.settingsCursor = newMax
-			}
+		if m.settingsCursor == m.settingsAILyricsField() {
+			m.settingsAILyrics = !m.settingsAILyrics
 			return m, nil
 		}
 	}
@@ -499,6 +507,9 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 
 	query := msg.artist + " " + msg.title
 	m.viewport.SetContent(fmt.Sprintf("New song detected!\n\n%s\n\nFetching lyrics...", query))
+	if m.config.AILyrics {
+		return m, m.fetchAILyrics(query, msg.artist, msg.title)
+	}
 	return m, m.searchLyricsWithMpris(query, msg.artist, msg.title)
 }
 
@@ -542,6 +553,54 @@ func (m Model) handleSearchResult(msg searchResult) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderSyncedLyrics())
 	} else {
 		m.viewport.SetContent(msg.song.Lyrics)
+	}
+
+	return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return m.getPlaybackPosition()()
+	})
+}
+
+func (m Model) handleAILyricsResult(msg aiLyricsResult) (tea.Model, tea.Cmd) {
+	m.searching = false
+
+	if msg.err != nil {
+		m.err = msg.err
+		m.viewport.SetContent(fmt.Sprintf("Error: %s", msg.err))
+		return m, nil
+	}
+
+	m.artist = msg.mprisArtist
+	m.title = msg.mprisTitle
+	if m.artist == "" {
+		m.title = msg.query
+	}
+	m.parsedArtist = m.artist
+	m.parsedTitle = m.title
+	m.playbackPosition = 0
+	m.offset = 0
+	m.ignorePositionUntil = time.Now().Add(1 * time.Second)
+
+	if len(msg.syncedLines) > 0 {
+		m.syncedLyrics = msg.syncedLines
+		m.hasSyncedLyrics = true
+		m.lyrics = ""
+		m.viewport.SetContent(m.renderSyncedLyrics())
+	} else {
+		m.lyrics = msg.lyricsText
+		m.hasSyncedLyrics = false
+		m.syncedLyrics = nil
+		m.viewport.SetContent(msg.lyricsText)
+	}
+
+	if msg.mprisArtist != "" && msg.mprisTitle != "" {
+		song := &lyrics.Song{
+			Artist:          msg.mprisArtist,
+			Title:           msg.mprisTitle,
+			Lyrics:          msg.lyricsText,
+			SyncedLyrics:    msg.syncedLines,
+			HasSyncedLyrics: len(msg.syncedLines) > 0,
+		}
+		m.lyricsService.SaveToCache(msg.mprisArtist, msg.mprisTitle, song, 0)
 	}
 
 	return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {

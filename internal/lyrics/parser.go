@@ -3,10 +3,10 @@ package lyrics
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
-// ParseLRC parses LRC format lyrics into a slice of timestamped lines.
 func ParseLRC(lrcContent string) []Line {
 	var lines []Line
 	re := regexp.MustCompile(`\[(\d+):(\d+)\.(\d+)\](.*)`)
@@ -34,4 +34,72 @@ func ParseLRC(lrcContent string) []Line {
 	}
 
 	return lines
+}
+
+func ParseVTT(content string) []Line {
+	var lines []Line
+	// matches HH:MM:SS.mmm or MM:SS.mmm
+	tsRegex := regexp.MustCompile(`(\d+:)?(\d+):(\d+)\.(\d+)\s*-->`)
+
+	rawLines := strings.Split(content, "\n")
+	for i := 0; i < len(rawLines); i++ {
+		if !tsRegex.MatchString(rawLines[i]) {
+			continue
+		}
+
+		ts := parseVTTTimestamp(strings.TrimSpace(strings.Split(rawLines[i], "-->")[0]))
+
+		var textParts []string
+		for i++; i < len(rawLines); i++ {
+			trimmed := strings.TrimSpace(rawLines[i])
+			if trimmed == "" {
+				break
+			}
+			// skip if it looks like another timestamp
+			if tsRegex.MatchString(trimmed) {
+				i--
+				break
+			}
+			textParts = append(textParts, trimmed)
+		}
+
+		if len(textParts) > 0 {
+			lines = append(lines, Line{
+				Timestamp: ts,
+				Text:      strings.Join(textParts, " "),
+			})
+		}
+	}
+
+	return lines
+}
+
+func parseVTTTimestamp(s string) float64 {
+	parts := strings.Split(s, ":")
+	switch len(parts) {
+	case 3:
+		h, _ := strconv.ParseFloat(parts[0], 64)
+		m, _ := strconv.ParseFloat(parts[1], 64)
+		sec, _ := strconv.ParseFloat(parts[2], 64)
+		return h*3600 + m*60 + sec
+	case 2:
+		m, _ := strconv.ParseFloat(parts[0], 64)
+		sec, _ := strconv.ParseFloat(parts[1], 64)
+		return m*60 + sec
+	case 1:
+		sec, _ := strconv.ParseFloat(parts[0], 64)
+		return sec
+	}
+	return 0
+}
+
+func ExtractBetweenTags(text, tag string) string {
+	openTag := "<" + tag + ">"
+	closeTag := "</" + tag + ">"
+	start := strings.Index(text, openTag)
+	end := strings.Index(text, closeTag)
+	if start == -1 || end == -1 || end <= start {
+		return text
+	}
+	return strings.TrimSpace(text[start+len(openTag) : end])
 }

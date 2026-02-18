@@ -21,6 +21,7 @@ type Provider interface {
 	Name() string
 	ID() ProviderID
 	Parse(query string) (artist, title string, err error)
+	Generate(prompt string) (string, error)
 	RequiresAPIKey() bool
 	DefaultEnvVar() string
 	DefaultModel() string

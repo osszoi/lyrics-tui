@@ -42,3 +42,12 @@ type searchResult struct {
 	mprisTitle  string
 	err         error
 }
+
+type aiLyricsResult struct {
+	lyricsText  string
+	syncedLines []lyrics.Line
+	query       string
+	mprisArtist string
+	mprisTitle  string
+	err         error
+}

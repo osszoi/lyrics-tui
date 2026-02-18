@@ -11,12 +11,14 @@ type Config struct {
 	Provider string
 	APIKey   string
 	Model    string
+	AILyrics bool
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		Provider: "ollama",
 		Model:    "qwen2.5-coder:14b",
+		AILyrics: true,
 	}
 }
 
@@ -53,6 +55,8 @@ func Load() *Config {
 			cfg.APIKey = value
 		case "model":
 			cfg.Model = value
+		case "ai_lyrics":
+			cfg.AILyrics = value == "true"
 		}
 	}
 	return cfg
@@ -63,7 +67,7 @@ func (c *Config) Save() error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	content := fmt.Sprintf("provider = \"%s\"\napi_key = \"%s\"\nmodel = \"%s\"\n",
-		c.Provider, c.APIKey, c.Model)
+	content := fmt.Sprintf("provider = \"%s\"\napi_key = \"%s\"\nmodel = \"%s\"\nai_lyrics = %t\n",
+		c.Provider, c.APIKey, c.Model, c.AILyrics)
 	return os.WriteFile(configPath(), []byte(content), 0644)
 }

@@ -57,6 +57,7 @@ type Model struct {
 	settingsProviderIdx int
 	settingsModel       textinput.Model
 	settingsAPIKey      textinput.Model
+	settingsAILyrics    bool
 
 	// search modal
 	searchModalOpen bool

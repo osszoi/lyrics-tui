@@ -274,6 +274,18 @@ func (m Model) renderSettingsModal() string {
 		parts = append(parts, "")
 	}
 
+	aiLyricsField := m.settingsAILyricsField()
+	aiLyricsVal := "OFF"
+	if m.settingsAILyrics {
+		aiLyricsVal = "ON"
+	}
+	if m.settingsCursor == aiLyricsField {
+		parts = append(parts, activeStyle.Render("> ")+"AI Lyrics   "+infoStyle.Render("◂ "+aiLyricsVal+" ▸"))
+	} else {
+		parts = append(parts, "  AI Lyrics   "+infoStyle.Render("  "+aiLyricsVal))
+	}
+	parts = append(parts, "")
+
 	clearCacheField := m.settingsClearCacheField()
 	count := m.lyricsService.CachedSongCount()
 	clearLabel := fmt.Sprintf("Clear Cache (%d songs)", count)
