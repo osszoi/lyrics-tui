@@ -63,12 +63,10 @@ func ParseVTT(content string) []Line {
 			textParts = append(textParts, trimmed)
 		}
 
-		if len(textParts) > 0 {
-			lines = append(lines, Line{
-				Timestamp: ts,
-				Text:      strings.Join(textParts, " "),
-			})
-		}
+		lines = append(lines, Line{
+			Timestamp: ts,
+			Text:      strings.Join(textParts, " "),
+		})
 	}
 
 	return lines

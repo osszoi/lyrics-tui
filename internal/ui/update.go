@@ -23,10 +23,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.detectCurrentSong(), tickEverySecond())
 
 	case positionTickMsg:
-		if m.hasSyncedLyrics {
-			return m, tea.Batch(m.getPlaybackPosition(), tickPosition())
-		}
-		return m, tickPosition()
+		return m, tea.Batch(m.getPlaybackPosition(), tickPosition())
 
 	case playbackPosition:
 		return m.handlePlaybackPosition(msg)
@@ -100,33 +97,42 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cachedSongsModalOpen = true
 		return m, nil
 
+	case "ctrl+r":
+		if m.lastQuery == "" || !m.config.AILyrics {
+			return m, nil
+		}
+		m.searching = true
+		m.viewport.SetContent("Retrying...")
+		return m, m.fetchAILyrics(m.lastQuery, m.lastMprisArtist, m.lastMprisTitle)
+
 	case "tab":
 		m.autoDetectMode = !m.autoDetectMode
 		if m.autoDetectMode {
+			m.followMode = true
 			return m, tea.Batch(m.detectCurrentSong(), tickEverySecond())
 		}
+		m.followMode = false
 		return m, nil
 
 	case "f":
 		m.followMode = !m.followMode
+		if m.hasSyncedLyrics {
+			m.viewport.SetContent(m.renderSyncedLyrics())
+		}
 		return m, nil
 
 	case "+", "=":
 		if m.hasSyncedLyrics {
 			m.offset += 0.1
 			m.viewport.SetContent(m.renderSyncedLyrics())
-			if m.mprisArtist != "" && m.mprisTitle != "" {
-				go m.saveOffsetToCache()
-			}
+			go m.saveOffsetToCache()
 		}
 
 	case "-", "_":
 		if m.hasSyncedLyrics {
 			m.offset -= 0.1
 			m.viewport.SetContent(m.renderSyncedLyrics())
-			if m.mprisArtist != "" && m.mprisTitle != "" {
-				go m.saveOffsetToCache()
-			}
+			go m.saveOffsetToCache()
 		}
 
 	case "up", "k":
@@ -156,6 +162,9 @@ func (m Model) handleSearchModalKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchModalOpen = false
 		m.input.Blur()
 		m.searching = true
+		m.lastQuery = query
+		m.lastMprisArtist = ""
+		m.lastMprisTitle = ""
 		m.viewport.SetContent("Searching...")
 		return m, m.searchLyrics(query)
 	}
@@ -420,6 +429,24 @@ func (m Model) handlePlaybackPosition(msg playbackPosition) (tea.Model, tea.Cmd)
 	m.playbackPosition = msg.position
 	m.duration = msg.duration
 
+	if m.estimatedTimestamps && msg.duration > 0 {
+		nonEmpty := 0
+		for _, l := range m.syncedLyrics {
+			if l.Text != "" {
+				nonEmpty++
+			}
+		}
+		interval := msg.duration / float64(nonEmptyOrOne(nonEmpty))
+		ts := 0.0
+		for i := range m.syncedLyrics {
+			m.syncedLyrics[i].Timestamp = ts
+			if m.syncedLyrics[i].Text != "" {
+				ts += interval
+			}
+		}
+		m.estimatedTimestamps = false
+	}
+
 	if m.hasSyncedLyrics {
 		oldYOffset := m.viewport.YOffset
 		m.viewport.SetContent(m.renderSyncedLyrics())
@@ -506,6 +533,9 @@ func (m Model) handleMPRISData(msg mprisData) (tea.Model, tea.Cmd) {
 	}
 
 	query := msg.artist + " " + msg.title
+	m.lastQuery = query
+	m.lastMprisArtist = msg.artist
+	m.lastMprisTitle = msg.title
 	m.viewport.SetContent(fmt.Sprintf("New song detected!\n\n%s\n\nFetching lyrics...", query))
 	if m.config.AILyrics {
 		return m, m.fetchAILyrics(query, msg.artist, msg.title)
@@ -569,38 +599,51 @@ func (m Model) handleAILyricsResult(msg aiLyricsResult) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.artist = msg.mprisArtist
-	m.title = msg.mprisTitle
-	if m.artist == "" {
-		m.title = msg.query
-	}
-	m.parsedArtist = m.artist
-	m.parsedTitle = m.title
+	m.artist = msg.artist
+	m.title = msg.title
+	m.parsedArtist = msg.artist
+	m.parsedTitle = msg.title
+	m.lyrics = msg.lyrics
 	m.playbackPosition = 0
 	m.offset = 0
 	m.ignorePositionUntil = time.Now().Add(1 * time.Second)
 
-	if len(msg.syncedLines) > 0 {
-		m.syncedLyrics = msg.syncedLines
-		m.hasSyncedLyrics = true
-		m.lyrics = ""
-		m.viewport.SetContent(m.renderSyncedLyrics())
-	} else {
-		m.lyrics = msg.lyricsText
-		m.hasSyncedLyrics = false
-		m.syncedLyrics = nil
-		m.viewport.SetContent(msg.lyricsText)
-	}
-
-	if msg.mprisArtist != "" && msg.mprisTitle != "" {
-		song := &lyrics.Song{
-			Artist:          msg.mprisArtist,
-			Title:           msg.mprisTitle,
-			Lyrics:          msg.lyricsText,
-			SyncedLyrics:    msg.syncedLines,
-			HasSyncedLyrics: len(msg.syncedLines) > 0,
+	lines := strings.Split(msg.lyrics, "\n")
+	var synced []lyrics.Line
+	nonEmpty := 0
+	for _, l := range lines {
+		if l != "" {
+			nonEmpty++
 		}
-		m.lyricsService.SaveToCache(msg.mprisArtist, msg.mprisTitle, song, 0)
+	}
+	// assume ~3 min until we get real duration
+	interval := 180.0 / float64(nonEmptyOrOne(nonEmpty))
+	ts := 0.0
+	for _, l := range lines {
+		synced = append(synced, lyrics.Line{Timestamp: ts, Text: l})
+		if l != "" {
+			ts += interval
+		}
+	}
+	m.syncedLyrics = synced
+	m.hasSyncedLyrics = true
+	m.estimatedTimestamps = true
+
+	m.viewport.SetContent(m.renderSyncedLyrics())
+
+	cacheArtist := msg.mprisArtist
+	cacheTitle := msg.mprisTitle
+	if cacheArtist == "" || cacheTitle == "" {
+		cacheArtist = msg.artist
+		cacheTitle = msg.title
+	}
+	if cacheArtist != "" || cacheTitle != "" {
+		song := &lyrics.Song{
+			Artist: cacheArtist,
+			Title:  cacheTitle,
+			Lyrics: msg.lyrics,
+		}
+		m.lyricsService.SaveToCache(cacheArtist, cacheTitle, song, 0)
 	}
 
 	return m, tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
@@ -609,8 +652,21 @@ func (m Model) handleAILyricsResult(msg aiLyricsResult) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) saveOffsetToCache() {
-	if m.mprisArtist == "" || m.mprisTitle == "" {
+	artist := m.mprisArtist
+	title := m.mprisTitle
+	if artist == "" || title == "" {
+		artist = m.artist
+		title = m.title
+	}
+	if artist == "" || title == "" {
 		return
 	}
-	m.lyricsService.UpdateOffset(m.mprisArtist, m.mprisTitle, m.offset)
+	m.lyricsService.UpdateOffset(artist, title, m.offset)
+}
+
+func nonEmptyOrOne(n int) int {
+	if n < 1 {
+		return 1
+	}
+	return n
 }

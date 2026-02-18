@@ -48,6 +48,11 @@ type Model struct {
 	parsedArtist string
 	parsedTitle  string
 
+	lastQuery           string
+	lastMprisArtist     string
+	lastMprisTitle      string
+	estimatedTimestamps bool
+
 	debugInfo string
 	err       error
 
@@ -104,7 +109,7 @@ func NewModel(lyricsService *lyrics.Service, player player.Player, parser parse.
 		version:           version,
 		input:             ti,
 		viewport:          vp,
-		followMode:        true,
+		followMode:        false,
 		settingsModel:     sm,
 		settingsAPIKey:    sa,
 		cachedSongsFilter: cf,

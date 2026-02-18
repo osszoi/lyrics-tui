@@ -32,7 +32,7 @@ func (m Model) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, lyricsBox)
 
-	help := helpStyle.Render("\n/: search • Ctrl+/: cached • Tab: auto-detect • f: follow • +/-: timing • Ctrl+O: settings • Esc: quit")
+	help := helpStyle.Render("\n/: search • Ctrl+R: retry • Ctrl+/: cached • Tab: auto-detect • f: follow • +/-: timing • Ctrl+O: settings • Esc: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
@@ -89,25 +89,18 @@ func (m Model) renderLoadedSongBox(width, height int) string {
 			parts = append(parts, activeStyle.Render("Searching..."))
 		}
 
-		if !m.hasSyncedLyrics && m.lyrics != "" {
-			parts = append(parts, "")
-			parts = append(parts, warningStyle.Render("No synced lyrics"))
-		}
-
-		if m.hasSyncedLyrics && m.offset != 0 {
+		if m.offset != 0 {
 			parts = append(parts, "")
 			parts = append(parts, helpStyle.Render(fmt.Sprintf("Offset: %+.1fs", m.offset)))
 		}
 
-		if m.hasSyncedLyrics {
-			followStr := "ON"
-			followColor := activeStyle
-			if !m.followMode {
-				followStr = "OFF"
-				followColor = warningStyle
-			}
-			parts = append(parts, followColor.Render("Follow: "+followStr))
+		followStr := "ON"
+		followColor := activeStyle
+		if !m.followMode {
+			followStr = "OFF"
+			followColor = warningStyle
 		}
+		parts = append(parts, followColor.Render("Follow: "+followStr))
 	} else {
 		parts = append(parts, helpStyle.Render("No song loaded"))
 	}
@@ -358,7 +351,11 @@ func (m Model) renderSyncedLyrics() string {
 	if !m.followMode {
 		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9399b2"))
 		for _, line := range m.syncedLyrics {
-			rendered = append(rendered, grayStyle.Render("  "+line.Text))
+			if line.Text == "" {
+				rendered = append(rendered, "")
+			} else {
+				rendered = append(rendered, grayStyle.Render("  "+line.Text))
+			}
 		}
 		return strings.Join(rendered, "\n")
 	}
@@ -369,7 +366,9 @@ func (m Model) renderSyncedLyrics() string {
 	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#cdd6f4"))
 
 	for i, line := range m.syncedLyrics {
-		if i == currentIdx {
+		if line.Text == "" {
+			rendered = append(rendered, "")
+		} else if i == currentIdx {
 			rendered = append(rendered, normalStyle.Render("► "+line.Text))
 		} else {
 			rendered = append(rendered, dimmedStyle.Render("  "+line.Text))

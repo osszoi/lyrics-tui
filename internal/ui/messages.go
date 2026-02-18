@@ -44,8 +44,9 @@ type searchResult struct {
 }
 
 type aiLyricsResult struct {
-	lyricsText  string
-	syncedLines []lyrics.Line
+	artist      string
+	title       string
+	lyrics      string
 	query       string
 	mprisArtist string
 	mprisTitle  string
