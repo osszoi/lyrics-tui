@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joho/godotenv"
@@ -23,9 +24,16 @@ func main() {
 
 	geniusToken := os.Getenv("GENIUS_ACCESS_TOKEN")
 
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+	cacheDir := filepath.Join(homeDir, ".config", "lyrics", "cached_songs")
+
 	lrclibProvider := lyrics.NewLRCLIBProvider()
 	geniusProvider := lyrics.NewGeniusProvider(geniusToken)
-	cache := lyrics.NewCache("songs")
+	cache := lyrics.NewCache(cacheDir)
 	lyricsService := lyrics.NewService(lrclibProvider, geniusProvider, cache)
 
 	mprisPlayer := player.NewMPRISPlayer()
